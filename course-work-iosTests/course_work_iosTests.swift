@@ -52,19 +52,19 @@ final class course_work_iosTests: XCTestCase {
         XCTAssertEqual(features.count, contracts.featureContract.featureOrder.count)
         XCTAssertEqual(Set(features.keys), Set(contracts.featureContract.featureOrder))
         XCTAssertTrue(features.values.allSatisfy(\.isFinite))
-        XCTAssertEqual(features["week_of_year"], 11.0, accuracy: 0.0001)
-        XCTAssertEqual(features["month"], 3.0, accuracy: 0.0001)
-        XCTAssertEqual(features["quarter"], 1.0, accuracy: 0.0001)
-        XCTAssertEqual(features["week_of_month"], 2.0, accuracy: 0.0001)
-        XCTAssertEqual(features["is_month_start_week"], 0.0, accuracy: 0.0001)
-        XCTAssertEqual(features["is_month_end_week"], 0.0, accuracy: 0.0001)
-        XCTAssertEqual(features["weekly_inflow_t_minus_1"], 2400.0, accuracy: 0.0001)
-        XCTAssertEqual(features["weekly_outflow_t_minus_1"], 720.0, accuracy: 0.0001)
-        XCTAssertEqual(features["weekly_inflow_t_minus_2"], 1500.0, accuracy: 0.0001)
-        XCTAssertEqual(features["inflow_frequency_8w"], 0.75, accuracy: 0.0001)
-        XCTAssertEqual(features["outflow_frequency_8w"], 1.0, accuracy: 0.0001)
-        XCTAssertEqual(features["weeks_since_inflow"], 1.0, accuracy: 0.0001)
-        XCTAssertEqual(features["weeks_since_outflow"], 1.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "week_of_year"), 11.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "month"), 3.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "quarter"), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "week_of_month"), 2.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "is_month_start_week"), 0.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "is_month_end_week"), 0.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "weekly_inflow_t_minus_1"), 2400.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "weekly_outflow_t_minus_1"), 720.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "weekly_inflow_t_minus_2"), 1500.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "inflow_frequency_8w"), 0.75, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "outflow_frequency_8w"), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "weeks_since_inflow"), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "weeks_since_outflow"), 1.0, accuracy: 0.0001)
     }
 
     func testFeatureBuilderSanitizesRatioAndCapsWeeksSince() throws {
@@ -84,9 +84,9 @@ final class course_work_iosTests: XCTestCase {
         }
 
         let features = try builder.buildFeatureVector(from: history)
-        XCTAssertEqual(features["outflow_inflow_ratio_t"], 0.0, accuracy: 0.0001)
-        XCTAssertEqual(features["inflow_outflow_ratio"], 0.0, accuracy: 0.0001)
-        XCTAssertEqual(features["weeks_since_inflow"], Double(contracts.thresholds.weeksSinceCap), accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "outflow_inflow_ratio_t"), 0.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "inflow_outflow_ratio"), 0.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "weeks_since_inflow"), Double(contracts.thresholds.weeksSinceCap), accuracy: 0.0001)
     }
 
     func testFeatureBuilderRollingRequiresFullEightShiftedWeeks() throws {
@@ -95,12 +95,12 @@ final class course_work_iosTests: XCTestCase {
         let history = makeFeatureHistory(weeks: 8)
 
         let features = try builder.buildFeatureVector(from: history)
-        XCTAssertEqual(features["inflow_rolling_mean_8w"], 0.0, accuracy: 0.0001)
-        XCTAssertEqual(features["inflow_rolling_std_8w"], 0.0, accuracy: 0.0001)
-        XCTAssertEqual(features["outflow_rolling_mean_8w"], 0.0, accuracy: 0.0001)
-        XCTAssertEqual(features["outflow_rolling_std_8w"], 0.0, accuracy: 0.0001)
-        XCTAssertEqual(features["inflow_frequency_8w"], 0.0, accuracy: 0.0001)
-        XCTAssertEqual(features["outflow_frequency_8w"], 0.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "inflow_rolling_mean_8w"), 0.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "inflow_rolling_std_8w"), 0.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "outflow_rolling_mean_8w"), 0.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "outflow_rolling_std_8w"), 0.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "inflow_frequency_8w"), 0.0, accuracy: 0.0001)
+        XCTAssertEqual(featureValue(features, key: "outflow_frequency_8w"), 0.0, accuracy: 0.0001)
     }
 
     func testPredictionServiceNormalizesVotesIntoProbabilities() throws {
@@ -193,9 +193,125 @@ final class course_work_iosTests: XCTestCase {
         XCTAssertEqual(state.requiredWeeks, 8)
     }
 
+    func testPredictionServiceFlagsClassLabelArgmaxMismatchInDiagnostics() throws {
+        let contracts = AppContractStore()
+        let predictor = StubPredictor(output: [
+            "classLabel": "0",
+            "classProbability": [
+                "0": NSNumber(value: 10.0),
+                "1": NSNumber(value: 20.0),
+                "2": NSNumber(value: 30.0),
+                "3": NSNumber(value: 360.0)
+            ]
+        ])
+
+        let service = PredictionService(
+            contract: contracts.featureContract,
+            thresholds: contracts.thresholds,
+            predictor: predictor
+        )
+
+        let computation = try service.predict(featureVector: goldenPredictionCases[0].features)
+        XCTAssertEqual(computation.predictedClass, 3)
+        XCTAssertFalse(computation.diagnostics.classLabelMatchesArgmax)
+        XCTAssertEqual(computation.diagnostics.classLabelFromModel, 0)
+        XCTAssertEqual(computation.diagnostics.argmaxClass, 3)
+    }
+
+    func testPredictionServicePersistsPredictionSnapshotWithDiagnostics() throws {
+        let contracts = AppContractStore()
+        let predictor = StubPredictor(output: [
+            "classLabel": "1",
+            "classProbability": [
+                "0": NSNumber(value: 20.088006),
+                "1": NSNumber(value: 157.819201),
+                "2": NSNumber(value: 152.624247),
+                "3": NSNumber(value: 89.468546)
+            ]
+        ])
+
+        let service = PredictionService(
+            contract: contracts.featureContract,
+            thresholds: contracts.thresholds,
+            predictor: predictor
+        )
+
+        let persistence = PersistenceController(inMemory: true)
+        let context = persistence.container.viewContext
+        let records = makeWeeklyRecords(in: context, weeks: 10)
+
+        let result = try service.upsertPredictionSnapshot(for: records, in: context)
+        guard case let .ready(computation) = result else {
+            return XCTFail("Expected ready prediction")
+        }
+
+        let request: NSFetchRequest<PredictionSnapshot> = PredictionSnapshot.fetchRequest()
+        let snapshots = try context.fetch(request)
+        XCTAssertEqual(snapshots.count, 1)
+
+        guard let snapshot = snapshots.first else {
+            return XCTFail("Missing persisted snapshot")
+        }
+
+        XCTAssertEqual(snapshot.predictedClass?.intValue, computation.predictedClass)
+        XCTAssertEqual(snapshot.sumVotes?.doubleValue ?? -1, 420.0, accuracy: 0.000001)
+        XCTAssertEqual(snapshot.sumProbs?.doubleValue ?? -1, 1.0, accuracy: 0.000001)
+        XCTAssertEqual(snapshot.confidence?.doubleValue ?? -1, computation.confidence, accuracy: 0.000001)
+        XCTAssertEqual(snapshot.isLowConfidence, computation.isLowConfidence)
+        XCTAssertNotNil(snapshot.featureVectorData)
+        XCTAssertTrue((snapshot.notes ?? "").contains("sumVotes=420.0"))
+        XCTAssertTrue((snapshot.notes ?? "").contains("sumProbs=1.0"))
+    }
+
+    func testCoreMLOnDeviceInferenceMatchesGoldenSamplesWhenModelIsAvailable() throws {
+        guard let modelURL = resolveCompiledModelURL() else {
+            throw XCTSkip("Compiled CoreML model not found in accessible paths for this environment.")
+        }
+
+        let model = try MLModel(contentsOf: modelURL)
+        let predictor = MLModelBackedPredictor(model: model)
+        let contracts = AppContractStore()
+        let service = PredictionService(
+            contract: contracts.featureContract,
+            thresholds: contracts.thresholds,
+            predictor: predictor
+        )
+
+        for sample in goldenPredictionCases {
+            let computation = try service.predict(featureVector: sample.features)
+            let expectedProbs = normalizedProbabilities(from: sample.expectedVotes)
+
+            XCTAssertEqual(computation.predictedClass, sample.expectedClass)
+            XCTAssertEqual(computation.diagnostics.sumVotes, 420.0, accuracy: 0.000001)
+            XCTAssertEqual(computation.diagnostics.sumProbs, 1.0, accuracy: 0.000001)
+            XCTAssertTrue(computation.diagnostics.classLabelMatchesArgmax)
+
+            for classId in 0...3 {
+                XCTAssertEqual(
+                    computation.probabilities[classId] ?? -1,
+                    expectedProbs[classId],
+                    accuracy: 0.000000001
+                )
+            }
+        }
+    }
+
     private func count(entity: String, context: NSManagedObjectContext) throws -> Int {
         let request = NSFetchRequest<NSFetchRequestResult>(entityName: entity)
         return try context.count(for: request)
+    }
+
+    private func featureValue(
+        _ features: [String: Double],
+        key: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> Double {
+        guard let value = features[key] else {
+            XCTFail("Missing feature value for key \(key)", file: file, line: line)
+            return .nan
+        }
+        return value
     }
 
     private func makeFeatureHistory(weeks: Int) -> [WeeklyFeatureInput] {
@@ -220,6 +336,66 @@ final class course_work_iosTests: XCTestCase {
         }
     }
 
+    private func makeWeeklyRecords(in context: NSManagedObjectContext, weeks: Int) -> [WeeklyRecord] {
+        let history = makeFeatureHistory(weeks: weeks)
+        let records = history.map { item in
+            let record = WeeklyRecord(context: context)
+            record.id = UUID()
+            record.weekStart = item.weekStart
+            record.weekIndex = NSNumber(value: item.weekIndex)
+            record.inflow = NSNumber(value: item.inflow)
+            record.outflow = NSNumber(value: item.outflow)
+            record.net = NSNumber(value: item.net)
+            record.txnCount = NSNumber(value: item.txnCount)
+            record.categoryDiversity = NSNumber(value: item.categoryDiversity)
+            record.modelSpendBucket = 0
+            record.modelNetBucket = 0
+            record.actualSpendAmount = 0
+            record.actualSpendBucket = 0
+            record.hasActualOutcome = false
+            record.createdAt = item.weekStart
+            record.updatedAt = item.weekStart
+            return record
+        }
+        return records
+    }
+
+    private func normalizedProbabilities(from votes: [String: Double]) -> [Double] {
+        let orderedVotes = (0...3).map { votes[String($0)] ?? 0.0 }
+        let sum = orderedVotes.reduce(0.0, +)
+        return orderedVotes.map { $0 / sum }
+    }
+
+    private func resolveCompiledModelURL() -> URL? {
+        let candidateBundles: [Bundle] = [
+            .main,
+            Bundle(for: type(of: self))
+        ]
+
+        for bundle in candidateBundles {
+            if let url = bundle.url(forResource: "BerkaSpendBucketRFCompiled", withExtension: "mlmodelc"),
+               FileManager.default.fileExists(atPath: url.path) {
+                return url
+            }
+        }
+
+        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let candidates = [
+            cwd.appendingPathComponent("BerkaSpendBucketRFCompiled.mlmodelc"),
+            cwd.appendingPathComponent("course-work-ios/BerkaSpendBucketRFCompiled.mlmodelc"),
+            cwd.appendingPathComponent("../BerkaSpendBucketRFCompiled.mlmodelc")
+        ]
+
+        for candidate in candidates {
+            let standardized = candidate.standardizedFileURL
+            if FileManager.default.fileExists(atPath: standardized.path) {
+                return standardized
+            }
+        }
+
+        return nil
+    }
+
     private func mondayDate(year: Int, month: Int, day: Int) -> Date {
         Calendar(identifier: .gregorian).date(from: DateComponents(year: year, month: month, day: day)) ?? .distantPast
     }
@@ -230,6 +406,14 @@ private struct StubPredictor: ModelPredicting {
 
     func predict(featureProvider _: MLFeatureProvider) throws -> MLFeatureProvider {
         try MLDictionaryFeatureProvider(dictionary: output)
+    }
+}
+
+private struct MLModelBackedPredictor: ModelPredicting {
+    let model: MLModel
+
+    func predict(featureProvider: MLFeatureProvider) throws -> MLFeatureProvider {
+        try model.prediction(from: featureProvider)
     }
 }
 
