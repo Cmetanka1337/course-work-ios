@@ -1,0 +1,16 @@
+{
+  "execution_timestamp": "2026-04-22T20:22:59.672586+00:00",
+  "selected_prefix": "full_spend_tuned",
+  "target": "bucket_spend_t_plus_1",
+  "run_mode": "full",
+  "feature_count": 31,
+  "metrics": {
+    "rf_f1_macro": 0.48775676315559324,
+    "rf_balanced_accuracy": 0.5664228464678376,
+    "stability_relative_drop": 0.048035063462091465,
+    "relative_gain_vs_persistence": 1.4564762120436463
+  },
+  "selected_model_resource": "BerkaSpendBucketRF.mlpackage",
+  "feature_passport_resource": "berka_feature_passport_spend_bucket.md",
+  "golden_inference_set_resource": "golden_inference_set_full_spend_tuned.json"
+}

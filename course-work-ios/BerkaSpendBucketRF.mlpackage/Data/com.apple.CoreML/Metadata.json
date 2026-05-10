@@ -1,0 +1,10 @@
+{
+  "MLModelVersionStringKey" : "--",
+  "MLModelDescriptionKey" : "BerkaSpendBucketRF (exported via coremltools)",
+  "MLModelCreatorDefinedKey" : {
+    "com.github.apple.coremltools.version" : "9.0",
+    "com.github.apple.coremltools.source" : "scikit-learn==1.5.1"
+  },
+  "MLModelAuthorKey" : "--",
+  "MLModelLicenseKey" : "--"
+}

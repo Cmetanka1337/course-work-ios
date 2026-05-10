@@ -29,9 +29,34 @@
 		7A736E732FADE44700C3738C /* course-work-iosUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "course-work-iosUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		7A736E9C2FADE93100C3738C /* Exceptions for "course-work-ios" folder in "course-work-ios" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				BerkaSpendBucketRF.mlpackage,
+				IOSSampleCases.swift,
+				XcodeSmokeTest.swift,
+			);
+			target = 7A736E562FADE44300C3738C /* course-work-ios */;
+		};
+		7A736E9D2FADE93100C3738C /* Exceptions for "course-work-ios" folder in "course-work-iosUITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				BerkaSpendBucketRF.mlpackage,
+				IOSSampleCases.swift,
+				XcodeSmokeTest.swift,
+			);
+			target = 7A736E722FADE44700C3738C /* course-work-iosUITests */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		7A736E592FADE44300C3738C /* course-work-ios */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				7A736E9C2FADE93100C3738C /* Exceptions for "course-work-ios" folder in "course-work-ios" target */,
+				7A736E9D2FADE93100C3738C /* Exceptions for "course-work-ios" folder in "course-work-iosUITests" target */,
+			);
 			path = "course-work-ios";
 			sourceTree = "<group>";
 		};

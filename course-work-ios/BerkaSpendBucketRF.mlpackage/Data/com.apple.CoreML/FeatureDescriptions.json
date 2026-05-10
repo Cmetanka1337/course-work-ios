@@ -1,0 +1,111 @@
+{
+  "Inputs" : {
+    "txn_count_t" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "inflow_outflow_ratio" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "inflow_rolling_std_8w" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "weeks_since_outflow" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "weekly_net_t" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "weekly_outflow_t_minus_2" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "delta_outflow" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "weekly_net_t_minus_1" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "month" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "weeks_since_inflow" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "inflow_frequency_8w" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "outflow_frequency_8w" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "bucket_net_t" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "inflow_rolling_mean_8w" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "bucket_spend_t" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "category_diversity_t" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "delta_inflow" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "weekly_inflow_t_minus_1" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "inflow_share" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "outflow_rolling_mean_8w" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "week_of_month" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "weekly_outflow_t_minus_1" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "weekly_inflow_t_minus_2" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "is_month_start_week" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "week_of_year" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "quarter" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "is_month_end_week" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "weekly_outflow_t" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "outflow_inflow_ratio_t" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "outflow_rolling_std_8w" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "weekly_inflow_t" : {
+      "MLFeatureShortDescription" : "--"
+    }
+  },
+  "Outputs" : {
+    "classProbability" : {
+      "MLFeatureShortDescription" : "--"
+    },
+    "classLabel" : {
+      "MLFeatureShortDescription" : "--"
+    }
+  },
+  "TrainingInputs" : {
+
+  },
+  "States" : {
+
+  }
+}

@@ -1,0 +1,133 @@
+import Foundation
+
+struct IOSSampleCase {
+    let features: [String: Double]
+    let expectedVotes: [Int: Double]
+    let expectedSumVotes: Double
+    let expectedProbs: [Double]
+    let expectedSumProbs: Double
+    let expectedPredClass: Int
+}
+
+let iosSampleCases: [IOSSampleCase] = [
+    IOSSampleCase(
+        features: [
+        "bucket_spend_t": 3.000000,
+        "bucket_net_t": 3.000000,
+        "weekly_inflow_t": 23752.000000,
+        "weekly_outflow_t": 17084.000000,
+        "weekly_net_t": 6668.000000,
+        "txn_count_t": 3.000000,
+        "category_diversity_t": 3.000000,
+        "weekly_inflow_t_minus_1": 162.900000,
+        "weekly_outflow_t_minus_1": 714.600000,
+        "weekly_net_t_minus_1": -551.700000,
+        "weekly_inflow_t_minus_2": 0.000000,
+        "weekly_outflow_t_minus_2": 1300.000000,
+        "outflow_inflow_ratio_t": 0.719266,
+        "week_of_year": 50.000000,
+        "month": 12.000000,
+        "quarter": 4.000000,
+        "week_of_month": 1.000000,
+        "is_month_start_week": 1.000000,
+        "is_month_end_week": 0.000000,
+        "delta_inflow": 23589.100000,
+        "delta_outflow": 16369.400000,
+        "inflow_outflow_ratio": 1.390307,
+        "inflow_share": 0.581644,
+        "inflow_rolling_mean_8w": 6000.400000,
+        "inflow_rolling_std_8w": 8144.113760,
+        "outflow_rolling_mean_8w": 5986.975000,
+        "outflow_rolling_std_8w": 7042.181990,
+        "inflow_frequency_8w": 0.750000,
+        "outflow_frequency_8w": 0.875000,
+        "weeks_since_inflow": 2.000000,
+        "weeks_since_outflow": 1.000000
+    ],
+        expectedVotes: [0: 20.088006, 3: 89.468546, 2: 152.624247, 1: 157.819201],
+        expectedSumVotes: 420.000000,
+        expectedProbs: [0.047829, 0.375760, 0.363391, 0.213020],
+        expectedSumProbs: 1.000000,
+        expectedPredClass: 1
+    ),
+    IOSSampleCase(
+        features: [
+        "bucket_spend_t": 1.000000,
+        "bucket_net_t": 2.000000,
+        "weekly_inflow_t": 52.800000,
+        "weekly_outflow_t": 14.600000,
+        "weekly_net_t": 38.200000,
+        "txn_count_t": 2.000000,
+        "category_diversity_t": 2.000000,
+        "weekly_inflow_t_minus_1": 0.000000,
+        "weekly_outflow_t_minus_1": 11816.000000,
+        "weekly_net_t_minus_1": -11816.000000,
+        "weekly_inflow_t_minus_2": 23122.000000,
+        "weekly_outflow_t_minus_2": 11700.000000,
+        "outflow_inflow_ratio_t": 0.276515,
+        "week_of_year": 44.000000,
+        "month": 10.000000,
+        "quarter": 4.000000,
+        "week_of_month": 4.000000,
+        "is_month_start_week": 0.000000,
+        "is_month_end_week": 0.000000,
+        "delta_inflow": 52.800000,
+        "delta_outflow": -11801.400000,
+        "inflow_outflow_ratio": 3.616438,
+        "inflow_share": 0.783383,
+        "inflow_rolling_mean_8w": 8681.437500,
+        "inflow_rolling_std_8w": 11967.765272,
+        "outflow_rolling_mean_8w": 7934.650000,
+        "outflow_rolling_std_8w": 4965.558943,
+        "inflow_frequency_8w": 0.500000,
+        "outflow_frequency_8w": 1.000000,
+        "weeks_since_inflow": 1.000000,
+        "weeks_since_outflow": 1.000000
+    ],
+        expectedVotes: [0: 58.237703, 3: 278.608224, 2: 79.893069, 1: 3.261004],
+        expectedSumVotes: 420.000000,
+        expectedProbs: [0.138661, 0.007764, 0.190222, 0.663353],
+        expectedSumProbs: 1.000000,
+        expectedPredClass: 3
+    ),
+    IOSSampleCase(
+        features: [
+        "bucket_spend_t": 2.000000,
+        "bucket_net_t": 2.000000,
+        "weekly_inflow_t": 2966.000000,
+        "weekly_outflow_t": 523.000000,
+        "weekly_net_t": 2443.000000,
+        "txn_count_t": 2.000000,
+        "category_diversity_t": 2.000000,
+        "weekly_inflow_t_minus_1": 0.000000,
+        "weekly_outflow_t_minus_1": 1814.000000,
+        "weekly_net_t_minus_1": -1814.000000,
+        "weekly_inflow_t_minus_2": 68.500000,
+        "weekly_outflow_t_minus_2": 14.600000,
+        "outflow_inflow_ratio_t": 0.176332,
+        "week_of_year": 46.000000,
+        "month": 11.000000,
+        "quarter": 4.000000,
+        "week_of_month": 2.000000,
+        "is_month_start_week": 0.000000,
+        "is_month_end_week": 0.000000,
+        "delta_inflow": 2966.000000,
+        "delta_outflow": -1291.000000,
+        "inflow_outflow_ratio": 5.671128,
+        "inflow_share": 0.850100,
+        "inflow_rolling_mean_8w": 1136.812500,
+        "inflow_rolling_std_8w": 1514.954732,
+        "outflow_rolling_mean_8w": 994.350000,
+        "outflow_rolling_std_8w": 812.648852,
+        "inflow_frequency_8w": 0.750000,
+        "outflow_frequency_8w": 1.000000,
+        "weeks_since_inflow": 1.000000,
+        "weeks_since_outflow": 1.000000
+    ],
+        expectedVotes: [0: 21.077288, 3: 8.572949, 2: 103.458292, 1: 286.891471],
+        expectedSumVotes: 420.000000,
+        expectedProbs: [0.050184, 0.683075, 0.246329, 0.020412],
+        expectedSumProbs: 1.000000,
+        expectedPredClass: 1
+    ),
+]

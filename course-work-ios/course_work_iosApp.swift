@@ -1,20 +1,14 @@
-//
-//  course_work_iosApp.swift
-//  course-work-ios
-//
-//  Created by Всеволод Буртик on 08.05.2026.
-//
-
 import SwiftUI
 import CoreData
 
 @main
 struct course_work_iosApp: App {
     let persistenceController = PersistenceController.shared
+    let contracts = AppContractStore()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(contracts: contracts)
                 .environment(\.managedObjectContext, persistenceController.container.viewContext)
         }
     }

@@ -1,0 +1,9 @@
+{
+  "q25_spend": 14.6,
+  "q75_spend": 7028.0,
+  "q25_net": -4100.0,
+  "q75_net": 3401.0,
+  "eps": 0.000001,
+  "weeks_since_cap": 52,
+  "ratio_clip_max": 10.0
+}

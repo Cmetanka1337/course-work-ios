@@ -1,9 +1,65 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithCloudKit="false" userDefinedModelVersionIdentifier="">
-    <entity name="Item" representedClassName="Item" syncable="YES" codeGenerationType="class">
-        <attribute name="timestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+    <entity name="WeeklyRecord" representedClassName="WeeklyRecord" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="weekStart" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="weekIndex" optional="NO" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="inflow" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="outflow" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="net" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="txnCount" optional="NO" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="categoryDiversity" optional="NO" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="modelSpendBucket" optional="NO" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="modelNetBucket" optional="NO" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="actualSpendAmount" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="actualSpendBucket" optional="NO" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="hasActualOutcome" optional="NO" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="createdAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="updatedAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+    </entity>
+    <entity name="PredictionSnapshot" representedClassName="PredictionSnapshot" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="weekStart" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="weekIndex" optional="NO" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="createdAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="modelVersion" optional="NO" attributeType="String"/>
+        <attribute name="sourceMode" optional="NO" attributeType="String"/>
+        <attribute name="predictedClass" optional="NO" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="confidence" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="probability0" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="probability1" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="probability2" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="probability3" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="sumVotes" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="sumProbs" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="isLowConfidence" optional="NO" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="featureVectorData" optional="NO" attributeType="Binary" allowsExternalBinaryDataStorage="YES" usesScalarValueType="NO"/>
+        <attribute name="notes" optional="NO" attributeType="String"/>
+    </entity>
+    <entity name="CalibrationStateRecord" representedClassName="CalibrationStateRecord" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="createdAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="updatedAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="schemaVersion" optional="NO" attributeType="String"/>
+        <attribute name="warmupWeeks" optional="NO" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="updateEveryWeeks" optional="NO" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="historyCap" optional="NO" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="learningRate" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="l2" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="gradClip" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="alpha" optional="NO" attributeType="Double" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="epochs" optional="NO" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="weeksSinceLastUpdate" optional="NO" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="updateCount" optional="NO" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="NO"/>
+        <attribute name="weightsData" optional="NO" attributeType="Binary" allowsExternalBinaryDataStorage="YES" usesScalarValueType="NO"/>
+        <attribute name="biasData" optional="NO" attributeType="Binary" allowsExternalBinaryDataStorage="YES" usesScalarValueType="NO"/>
+        <attribute name="bufferData" optional="NO" attributeType="Binary" allowsExternalBinaryDataStorage="YES" usesScalarValueType="NO"/>
+        <attribute name="isActive" optional="NO" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="notes" optional="NO" attributeType="String"/>
     </entity>
     <elements>
-        <element name="Item" positionX="-63" positionY="-18" width="128" height="44"/>
+        <element name="WeeklyRecord" positionX="-63" positionY="-18" width="128" height="44"/>
+        <element name="PredictionSnapshot" positionX="-63" positionY="74" width="128" height="44"/>
+        <element name="CalibrationStateRecord" positionX="-63" positionY="166" width="128" height="44"/>
     </elements>
 </model>
