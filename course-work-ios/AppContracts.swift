@@ -170,13 +170,15 @@ struct AppContractStore {
         )
         goldenInferenceSetRecordCount = goldenData.flatMap(Self.goldenRecordCount)
 
-        modelResourceExists = bundle.url(forResource: "BerkaSpendBucketRF", withExtension: "mlpackage") != nil
+        let compiledModelURL = bundle.url(forResource: "BerkaSpendBucketRFCompiled", withExtension: "mlmodelc")
+        let packagedModelURL = bundle.url(forResource: "BerkaSpendBucketRF", withExtension: "mlpackage")
+        modelResourceExists = compiledModelURL != nil || packagedModelURL != nil
         featurePassportExists = passport != nil
         releaseManifestExists = bundle.url(forResource: "release_manifest", withExtension: "json") != nil
         goldenInferenceSetExists = goldenData != nil
 
         if !modelResourceExists {
-            issues.append("Missing BerkaSpendBucketRF.mlpackage")
+            issues.append("Missing BerkaSpendBucketRFCompiled.mlmodelc or BerkaSpendBucketRF.mlpackage")
         }
         if !featurePassportExists {
             issues.append("Missing berka_feature_passport_spend_bucket.md")

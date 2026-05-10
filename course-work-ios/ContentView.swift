@@ -4,6 +4,10 @@ import CoreData
 struct ContentView: View {
     let contracts: AppContractStore
 
+    @Environment(\.managedObjectContext) private var viewContext
+
+    @State private var predictionPipelineStatus = "Awaiting history"
+
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \WeeklyRecord.updatedAt, ascending: false)],
         animation: .default
@@ -27,6 +31,7 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     header
+                    predictionPipelineSection
                     contractSection
                     thresholdSection
                     storageSection
@@ -46,6 +51,9 @@ struct ContentView: View {
                 .ignoresSafeArea()
             )
             .navigationTitle("CourseWork")
+            .task(id: weeklyRecords.count) {
+                await refreshPredictionSnapshot()
+            }
         }
     }
 
@@ -67,6 +75,17 @@ struct ContentView: View {
             metricRow(label: "Blended alpha", value: formatPercent(contracts.featureContract.guardrails.alphaAfterWarmup))
             metricRow(label: "Confidence threshold", value: "0.50")
             metricRow(label: "Label map", value: contracts.featureContract.labelMapping.values.sorted().joined(separator: ", "))
+        }
+    }
+
+    private var predictionPipelineSection: some View {
+        infoCard(title: "Stage 2 prediction pipeline") {
+            metricRow(label: "Status", value: predictionPipelineStatus)
+            if let latestPrediction = predictionSnapshots.first {
+                metricRow(label: "sumVotes", value: formatNumber(numericValue(latestPrediction.sumVotes)))
+                metricRow(label: "sumProbs", value: formatNumber(numericValue(latestPrediction.sumProbs)))
+                metricRow(label: "Confidence", value: formatPercent(numericValue(latestPrediction.confidence)))
+            }
         }
     }
 
@@ -185,6 +204,26 @@ struct ContentView: View {
 
     private func numericString(_ value: NSNumber?) -> String {
         value.map { String($0.int64Value) } ?? "n/a"
+    }
+
+    @MainActor
+    private func refreshPredictionSnapshot() async {
+        do {
+            let service = try PredictionService(contracts: contracts)
+            let history = Array(weeklyRecords)
+            let result = try service.upsertPredictionSnapshot(for: history, in: viewContext)
+            switch result {
+            case let .warmup(state):
+                predictionPipelineStatus = "Warm-up \(state.completedWeeks)/\(state.requiredWeeks)"
+            case let .ready(computation):
+                predictionPipelineStatus = computation.isLowConfidence
+                    ? "Ready (low confidence)"
+                    : "Ready"
+            }
+        } catch {
+            predictionPipelineStatus = "Pipeline error"
+            print("Prediction pipeline error: \(error.localizedDescription)")
+        }
     }
 }
 
