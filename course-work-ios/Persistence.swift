@@ -23,11 +23,16 @@ struct PersistenceController {
 
     let container: NSPersistentContainer
 
-    init(inMemory: Bool = false) {
+    init(inMemory: Bool = false, storeURL: URL? = nil) {
         container = NSPersistentContainer(name: "course_work_ios")
+        let description = container.persistentStoreDescriptions.first ?? NSPersistentStoreDescription()
         if inMemory {
-            container.persistentStoreDescriptions.first?.url = URL(fileURLWithPath: "/dev/null")
+            description.url = URL(fileURLWithPath: "/dev/null")
+        } else if let storeURL {
+            description.url = storeURL
         }
+        description.shouldAddStoreAsynchronously = false
+        container.persistentStoreDescriptions = [description]
 
         container.loadPersistentStores { _, error in
             if let error = error as NSError? {
@@ -35,6 +40,7 @@ struct PersistenceController {
             }
         }
         container.viewContext.automaticallyMergesChangesFromParent = true
+        container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
     }
 }
 
@@ -53,9 +59,9 @@ private func seedPreviewData(in context: NSManagedObjectContext) {
     week1.categoryDiversity = 3
     week1.modelSpendBucket = 3
     week1.modelNetBucket = 3
-    week1.actualSpendAmount = 17_084
-    week1.actualSpendBucket = 3
-    week1.hasActualOutcome = true
+    week1.actualSpendAmount = 0
+    week1.actualSpendBucket = 0
+    week1.hasActualOutcome = false
     week1.createdAt = baseDate
     week1.updatedAt = baseDate
 

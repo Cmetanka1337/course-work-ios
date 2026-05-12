@@ -75,7 +75,7 @@ struct CoreMLPredictor: ModelPredicting {
     }
 }
 
-final class PredictionService {
+struct PredictionService {
     private let contract: FeatureContract
     private let thresholds: BucketThresholds
     private let featureBuilder: FeatureBuilder
@@ -96,7 +96,7 @@ final class PredictionService {
         confidenceThreshold = contract.guardrails.confidenceThreshold ?? confidenceThresholdFallback
     }
 
-    convenience init(contracts: AppContractStore, bundle: Bundle = .main) throws {
+    init(contracts: AppContractStore, bundle: Bundle = .main) throws {
         try self.init(
             contract: contracts.featureContract,
             thresholds: contracts.thresholds,
