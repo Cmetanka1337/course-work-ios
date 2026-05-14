@@ -6,6 +6,26 @@ import XCTest
 @MainActor
 final class CalibrationSmokeHarnessTests: XCTestCase {
     func testStage3CalibrationHistoricalReplaySmoke() throws {
+        let environment = try loadSmokeEnvironment()
+        try runReplayHarness(
+            mode: .historicalReplay,
+            storePath: environment.storePath,
+            reportPath: environment.reportPath,
+            shouldRunRealCoreML: environment.shouldRunRealCoreML
+        )
+    }
+
+    func testStage3CalibrationShuffledLabelsDoesNotImprove() throws {
+        let environment = try loadSmokeEnvironment()
+        try runReplayHarness(
+            mode: .shuffledLabelsNegativeControl,
+            storePath: environment.storePath,
+            reportPath: environment.reportPath,
+            shouldRunRealCoreML: false
+        )
+    }
+
+    private func loadSmokeEnvironment() throws -> (storePath: String, reportPath: String, shouldRunRealCoreML: Bool) {
         let environment = ProcessInfo.processInfo.environment
         let storePath = try XCTUnwrap(
             environment["CALIBRATION_SMOKE_STORE_URL"],
@@ -16,15 +36,24 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
             "CALIBRATION_SMOKE_REPORT_PATH must be provided by the smoke script."
         )
         let shouldRunRealCoreML = environment["CALIBRATION_SMOKE_RUN_REAL_COREML"] != "0"
+        return (storePath, reportPath, shouldRunRealCoreML)
+    }
 
+    private func runReplayHarness(
+        mode: SmokeHarnessMode,
+        storePath: String,
+        reportPath: String,
+        shouldRunRealCoreML: Bool
+    ) throws {
         let storeURL = URL(fileURLWithPath: storePath)
         let reportURL = URL(fileURLWithPath: reportPath)
         let contracts = AppContractStore()
         let scenario = makeReplayScenario()
         let predictor = ReplayPredictor(probabilitiesByWeekOfYear: Dictionary(uniqueKeysWithValues: scenario.map { ($0.weekOfYear, $0.baseProbabilities) }))
         let smokeReport = CalibrationSmokeReport(
+            title: mode.reportTitle,
             warmupWeeks: contracts.featureContract.guardrails.warmupWeeks,
-            cadence: 2,
+            cadence: mode.reportCadence,
             alpha: contracts.featureContract.guardrails.alphaAfterWarmup,
             storePath: storePath
         )
@@ -40,6 +69,12 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
             let context = controller.container.viewContext
             let service = try PersonalizationService(contracts: contracts, predictor: predictor)
 
+            if mode.usesShuffledLabels {
+                try disableAutomaticCalibrationTraining(in: context, service: service)
+                outcome.report.summaryNotes.append("Negative control: rotate labels deterministically with yShuffled = (yTrue + 1) % 4.")
+                outcome.report.summaryNotes.append("Expectation: shuffled-label calibration must not improve true-label probability, Brier, or log-loss.")
+            }
+
             for week in scenario.prefix(15) {
                 let record = makeWeeklyRecord(from: week, in: context)
                 try context.save()
@@ -47,6 +82,11 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
                 let currentHistory = try fetchWeeklyRecords(in: context)
                 let predictionResult = try service.evaluateAndPersistPrediction(for: currentHistory, in: context)
                 let closeResult = try service.closeWeek(record, actualOutflow: week.actualOutflow, history: currentHistory, in: context)
+
+                if mode.usesShuffledLabels {
+                    try applyShuffledLabelsAndMaybeTrain(in: context, contracts: contracts)
+                }
+
                 let status = try service.fetchCalibrationStatus(in: context)
                 let snapshot = try service.fetchCalibrationSnapshot(in: context)
                 let latestPrediction = try fetchLatestPredictionSnapshot(in: context)
@@ -146,9 +186,17 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
 
             try assert(abs(baseComputation.diagnostics.sumProbs - 1.0) < 0.000001, "Baseline RF probabilities must stay normalized.", report: &outcome.report)
             try assert(abs(finalProbabilities.reduce(0.0, +) - 1.0) < 0.000001, "Blended probabilities must stay normalized.", report: &outcome.report)
-            try assert(finalProbabilities[trueClass] > baselineProbabilities[trueClass], "Calibration should increase probability for the observed high-spend class on the evaluation week.", report: &outcome.report)
-            try assert(finalBrier < baseBrier, "Calibration should improve Brier score on the evaluation week.", report: &outcome.report)
-            try assert(finalLogLoss < baseLogLoss, "Calibration should improve log-loss on the evaluation week.", report: &outcome.report)
+
+            if mode.usesShuffledLabels {
+                let tolerance = 0.000001
+                try assert(finalProbabilities[trueClass] <= baselineProbabilities[trueClass] + tolerance, "Shuffled-label calibration must not raise the true-class probability on the evaluation week.", report: &outcome.report)
+                try assert(finalBrier >= baseBrier - tolerance, "Shuffled-label calibration must not improve Brier score on the evaluation week.", report: &outcome.report)
+                try assert(finalLogLoss >= baseLogLoss - tolerance, "Shuffled-label calibration must not improve log-loss on the evaluation week.", report: &outcome.report)
+            } else {
+                try assert(finalProbabilities[trueClass] > baselineProbabilities[trueClass], "Calibration should increase probability for the observed high-spend class on the evaluation week.", report: &outcome.report)
+                try assert(finalBrier < baseBrier, "Calibration should improve Brier score on the evaluation week.", report: &outcome.report)
+                try assert(finalLogLoss < baseLogLoss, "Calibration should improve log-loss on the evaluation week.", report: &outcome.report)
+            }
 
             if shouldRunRealCoreML {
                 outcome.report.coreMLRows = try runRealCoreMLInformationalReplay(contracts: contracts)
@@ -280,6 +328,113 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
         }
     }
 
+    private func disableAutomaticCalibrationTraining(
+        in context: NSManagedObjectContext,
+        service: PersonalizationService
+    ) throws {
+        _ = try service.fetchCalibrationStatus(in: context)
+        let state = try XCTUnwrap(fetchCalibrationState(in: context))
+        state.updateEveryWeeks = 99
+        state.updatedAt = Date()
+        try context.save()
+    }
+
+    private func applyShuffledLabelsAndMaybeTrain(
+        in context: NSManagedObjectContext,
+        contracts: AppContractStore
+    ) throws {
+        let state = try XCTUnwrap(fetchCalibrationState(in: context))
+        let config = calibrationConfig(from: state, contracts: contracts, updateEveryWeeksOverride: SmokeHarnessMode.shuffledLabelsNegativeControl.reportCadence)
+        let rotatedSamples = decodeSamples(from: state.bufferData).map { sample in
+            let derivedLabel = PersonalizationService.spendBucket(for: max(0.0, sample.actualOutflow), thresholds: contracts.thresholds)
+            return CalibrationSample(
+                weekIndex: sample.weekIndex,
+                weekStart: sample.weekStart,
+                pRF: sample.pRF,
+                yTrue: (derivedLabel + 1) % 4,
+                actualOutflow: sample.actualOutflow,
+                recordedAt: sample.recordedAt
+            )
+        }
+
+        state.bufferData = encodeSamples(rotatedSamples)
+
+        let shouldTrain = rotatedSamples.count >= config.warmupWeeks &&
+            (state.weeksSinceLastUpdate?.intValue ?? 0) >= config.updateEveryWeeks
+
+        if shouldTrain {
+            var calibrator = SoftmaxCalibrator(
+                weights: decodeMatrix(from: state.weightsData) ?? SoftmaxCalibrator.identity().weights,
+                bias: decodeVector(from: state.biasData) ?? SoftmaxCalibrator.identity().bias
+            )
+            calibrator.train(samples: rotatedSamples, config: config)
+            state.weightsData = encodeMatrix(calibrator.weights)
+            state.biasData = encodeVector(calibrator.bias)
+            state.weeksSinceLastUpdate = 0
+            state.updateCount = NSNumber(value: (state.updateCount?.intValue ?? 0) + 1)
+            state.isActive = true
+            state.notes = "Manual shuffled-label retrain on \(rotatedSamples.count) samples."
+        } else {
+            state.isActive = (state.updateCount?.intValue ?? 0) > 0
+            state.notes = "Queued \(rotatedSamples.count) shuffled-label samples."
+        }
+
+        state.updatedAt = Date()
+        try context.save()
+    }
+
+    private func fetchCalibrationState(in context: NSManagedObjectContext) throws -> CalibrationStateRecord? {
+        let request: NSFetchRequest<CalibrationStateRecord> = CalibrationStateRecord.fetchRequest()
+        request.fetchLimit = 1
+        request.sortDescriptors = [NSSortDescriptor(keyPath: \CalibrationStateRecord.createdAt, ascending: true)]
+        return try context.fetch(request).first
+    }
+
+    private func calibrationConfig(
+        from state: CalibrationStateRecord,
+        contracts: AppContractStore,
+        updateEveryWeeksOverride: Int? = nil
+    ) -> CalibrationConfig {
+        CalibrationConfig(
+            warmupWeeks: max(1, state.warmupWeeks?.intValue ?? contracts.featureContract.guardrails.warmupWeeks),
+            updateEveryWeeks: max(1, updateEveryWeeksOverride ?? state.updateEveryWeeks?.intValue ?? 2),
+            historyCap: max(1, state.historyCap?.intValue ?? 20),
+            learningRate: max(0.0001, state.learningRate?.doubleValue ?? 0.05),
+            l2: max(0.0, state.l2?.doubleValue ?? 0.001),
+            gradClip: max(0.0, state.gradClip?.doubleValue ?? 5.0),
+            alpha: min(1.0, max(0.0, state.alpha?.doubleValue ?? contracts.featureContract.guardrails.alphaAfterWarmup)),
+            epochs: max(1, state.epochs?.intValue ?? 20),
+            confidenceThreshold: contracts.featureContract.guardrails.confidenceThreshold ?? 0.5
+        )
+    }
+
+    private func encodeSamples(_ samples: [CalibrationSample]) -> Data {
+        (try? JSONEncoder().encode(samples)) ?? Data("[]".utf8)
+    }
+
+    private func decodeSamples(from data: Data?) -> [CalibrationSample] {
+        guard let data, !data.isEmpty else { return [] }
+        return (try? JSONDecoder().decode([CalibrationSample].self, from: data)) ?? []
+    }
+
+    private func encodeMatrix(_ matrix: [[Double]]) -> Data {
+        (try? JSONEncoder().encode(matrix)) ?? Data()
+    }
+
+    private func decodeMatrix(from data: Data?) -> [[Double]]? {
+        guard let data, !data.isEmpty else { return nil }
+        return try? JSONDecoder().decode([[Double]].self, from: data)
+    }
+
+    private func encodeVector(_ vector: [Double]) -> Data {
+        (try? JSONEncoder().encode(vector)) ?? Data()
+    }
+
+    private func decodeVector(from data: Data?) -> [Double]? {
+        guard let data, !data.isEmpty else { return nil }
+        return try? JSONDecoder().decode([Double].self, from: data)
+    }
+
     private func runRealCoreMLInformationalReplay(contracts: AppContractStore) throws -> [CoreMLInfoRow] {
         let service = try PredictionService(contracts: contracts)
         return try informationalReferenceCases().map { sample in
@@ -287,7 +442,7 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
             let computation = try service.predict(featureVector: sample.features)
             let latencyMs = (CFAbsoluteTimeGetCurrent() - startedAt) * 1000.0
             return CoreMLInfoRow(
-                expectedClass: sample.expectedClass,
+                referenceExpectedClass: sample.referenceExpectedClass,
                 predictedClass: computation.predictedClass,
                 probabilities: probabilitiesArray(from: computation.probabilities),
                 sumProbs: computation.diagnostics.sumProbs,
@@ -299,7 +454,7 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
     private func informationalReferenceCases() -> [InformationalReferenceCase] {
         [
             InformationalReferenceCase(
-                expectedClass: 1,
+                referenceExpectedClass: 1,
                 features: [
                     "bucket_spend_t": 3.0,
                     "bucket_net_t": 3.0,
@@ -335,7 +490,7 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
                 ]
             ),
             InformationalReferenceCase(
-                expectedClass: 1,
+                referenceExpectedClass: 1,
                 features: [
                     "bucket_spend_t": 1.0,
                     "bucket_net_t": 2.0,
@@ -371,7 +526,7 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
                 ]
             ),
             InformationalReferenceCase(
-                expectedClass: 2,
+                referenceExpectedClass: 2,
                 features: [
                     "bucket_spend_t": 2.0,
                     "bucket_net_t": 1.0,
@@ -443,7 +598,7 @@ private struct EvaluationSummary {
 }
 
 private struct CoreMLInfoRow {
-    let expectedClass: Int
+    let referenceExpectedClass: Int
     let predictedClass: Int
     let probabilities: [Double]
     let sumProbs: Double
@@ -451,7 +606,7 @@ private struct CoreMLInfoRow {
 }
 
 private struct InformationalReferenceCase {
-    let expectedClass: Int
+    let referenceExpectedClass: Int
     let features: [String: Double]
 }
 
@@ -461,6 +616,7 @@ private struct HarnessOutcome {
 }
 
 private struct CalibrationSmokeReport {
+    let title: String
     let warmupWeeks: Int
     let cadence: Int
     let alpha: Double
@@ -469,13 +625,21 @@ private struct CalibrationSmokeReport {
     var roundTrip = "Not executed"
     var evaluation: EvaluationSummary?
     var coreMLRows: [CoreMLInfoRow] = []
+    var summaryNotes: [String] = []
     var failureReason: String?
 
     func render(status: String) -> String {
         var lines: [String] = []
-        lines.append("Stage 3 Calibration Smoke Harness")
+        lines.append(title)
         lines.append("config: warmup=\(warmupWeeks), cadence=\(cadence), alpha=\(format(alpha))")
         lines.append("temp_store: \(storePath)")
+        if !summaryNotes.isEmpty {
+            lines.append("")
+            lines.append("Summary notes")
+            for note in summaryNotes {
+                lines.append(note)
+            }
+        }
         lines.append("")
         lines.append("Replay weeks")
         lines.append("weekIndex | referenceOutflow | actualOutflow | derivedBucket | labelBuffered | mode | updateCount")
@@ -505,7 +669,7 @@ private struct CalibrationSmokeReport {
             lines.append("Skipped.")
         } else {
             for (index, row) in coreMLRows.enumerated() {
-                lines.append("case \(index): expected=\(row.expectedClass) predicted=\(row.predictedClass) sumProbs=\(format(row.sumProbs)) latencyMs=\(format(row.latencyMs)) probs=\(formatProbabilities(row.probabilities))")
+                lines.append("case \(index): referenceExpectedClass=\(row.referenceExpectedClass) predictedClass=\(row.predictedClass) sumProbs=\(format(row.sumProbs)) latencyMs=\(format(row.latencyMs)) probs=\(formatProbabilities(row.probabilities))")
             }
         }
         lines.append("")
@@ -514,6 +678,31 @@ private struct CalibrationSmokeReport {
         }
         lines.append(status)
         return lines.joined(separator: "\n")
+    }
+}
+
+private enum SmokeHarnessMode {
+    case historicalReplay
+    case shuffledLabelsNegativeControl
+
+    var reportTitle: String {
+        switch self {
+        case .historicalReplay:
+            return "Stage 3 Calibration Smoke Harness"
+        case .shuffledLabelsNegativeControl:
+            return "Stage 3 Calibration Smoke Harness (Shuffled Labels Negative Control)"
+        }
+    }
+
+    var reportCadence: Int { 2 }
+
+    var usesShuffledLabels: Bool {
+        switch self {
+        case .historicalReplay:
+            return false
+        case .shuffledLabelsNegativeControl:
+            return true
+        }
     }
 }
 
