@@ -69,6 +69,11 @@
 			path = "course-work-iosUITests";
 			sourceTree = "<group>";
 		};
+		7AA4301D2FB65851001DB5E5 /* metodichka */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = metodichka;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -99,6 +104,7 @@
 		7A736E4E2FADE44300C3738C = {
 			isa = PBXGroup;
 			children = (
+				7AA4301D2FB65851001DB5E5 /* metodichka */,
 				7A736E592FADE44300C3738C /* course-work-ios */,
 				7A736E6C2FADE44700C3738C /* course-work-iosTests */,
 				7A736E762FADE44700C3738C /* course-work-iosUITests */,
@@ -134,6 +140,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				7A736E592FADE44300C3738C /* course-work-ios */,
+				7AA4301D2FB65851001DB5E5 /* metodichka */,
 			);
 			name = "course-work-ios";
 			packageProductDependencies = (
