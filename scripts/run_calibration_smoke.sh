@@ -7,6 +7,7 @@ SCHEME="course-work-ios"
 KEEP_ARTIFACTS=0
 RUN_REAL_COREML=1
 SHUFFLED_LABELS=0
+REAL_COREML_REPLAY=0
 TEST_IDENTIFIER="course-work-iosTests/CalibrationSmokeHarnessTests/testStage3CalibrationHistoricalReplaySmoke"
 
 while [[ $# -gt 0 ]]; do
@@ -25,18 +26,31 @@ while [[ $# -gt 0 ]]; do
       TEST_IDENTIFIER="course-work-iosTests/CalibrationSmokeHarnessTests/testStage3CalibrationShuffledLabelsDoesNotImprove"
       shift
       ;;
+    --real-coreml-replay)
+      REAL_COREML_REPLAY=1
+      TEST_IDENTIFIER="course-work-iosTests/CalibrationSmokeHarnessTests/testStage3CalibrationRealCoreMLReplaySmoke"
+      shift
+      ;;
     *)
       echo "Unknown argument: $1" >&2
-      echo "Usage: scripts/run_calibration_smoke.sh [--keep-artifacts] [--skip-real-coreml] [--shuffled-labels]" >&2
+      echo "Usage: scripts/run_calibration_smoke.sh [--keep-artifacts] [--skip-real-coreml] [--shuffled-labels] [--real-coreml-replay]" >&2
       exit 2
       ;;
   esac
 done
 
+if [[ "$REAL_COREML_REPLAY" -eq 1 && "$SHUFFLED_LABELS" -eq 1 ]]; then
+  echo "Usage error: --real-coreml-replay and --shuffled-labels cannot be combined." >&2
+  echo "Usage: scripts/run_calibration_smoke.sh [--keep-artifacts] [--skip-real-coreml] [--shuffled-labels] [--real-coreml-replay]" >&2
+  exit 2
+fi
+
 ARTIFACTS_DIR="$(mktemp -d /private/tmp/calibration-smoke.XXXXXX)"
 DERIVED_DATA_PATH="$ARTIFACTS_DIR/DerivedData"
 STORE_PATH="$ARTIFACTS_DIR/calibration-smoke.sqlite"
-if [[ "$SHUFFLED_LABELS" -eq 1 ]]; then
+if [[ "$REAL_COREML_REPLAY" -eq 1 ]]; then
+  REPORT_PATH="$ARTIFACTS_DIR/calibration-smoke-report-real-coreml.txt"
+elif [[ "$SHUFFLED_LABELS" -eq 1 ]]; then
   REPORT_PATH="$ARTIFACTS_DIR/calibration-smoke-report-shuffled.txt"
 else
   REPORT_PATH="$ARTIFACTS_DIR/calibration-smoke-report.txt"
@@ -86,8 +100,7 @@ inject_smoke_environment() {
 DESTINATION_ID="$(
   xcodebuild -scheme "$SCHEME" -showdestinations 2>/dev/null |
     sed -n 's/.*platform:iOS Simulator,.*id:\([^,}]*\).*/\1/p' |
-    grep -v placeholder |
-    head -n 1
+    awk '!/placeholder/ { print; exit }'
 )"
 
 if [[ -n "$DESTINATION_ID" ]]; then

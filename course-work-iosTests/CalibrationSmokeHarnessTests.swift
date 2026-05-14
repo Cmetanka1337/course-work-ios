@@ -7,7 +7,7 @@ import XCTest
 final class CalibrationSmokeHarnessTests: XCTestCase {
     func testStage3CalibrationHistoricalReplaySmoke() throws {
         let environment = try loadSmokeEnvironment()
-        try runReplayHarness(
+        try runSmokeHarness(
             mode: .historicalReplay,
             storePath: environment.storePath,
             reportPath: environment.reportPath,
@@ -17,8 +17,18 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
 
     func testStage3CalibrationShuffledLabelsDoesNotImprove() throws {
         let environment = try loadSmokeEnvironment()
-        try runReplayHarness(
+        try runSmokeHarness(
             mode: .shuffledLabelsNegativeControl,
+            storePath: environment.storePath,
+            reportPath: environment.reportPath,
+            shouldRunRealCoreML: false
+        )
+    }
+
+    func testStage3CalibrationRealCoreMLReplaySmoke() throws {
+        let environment = try loadSmokeEnvironment()
+        try runSmokeHarness(
+            mode: .realCoreMLReplay,
             storePath: environment.storePath,
             reportPath: environment.reportPath,
             shouldRunRealCoreML: false
@@ -39,7 +49,7 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
         return (storePath, reportPath, shouldRunRealCoreML)
     }
 
-    private func runReplayHarness(
+    private func runSmokeHarness(
         mode: SmokeHarnessMode,
         storePath: String,
         reportPath: String,
@@ -65,55 +75,28 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
         }
 
         do {
-            let controller = PersistenceController(storeURL: storeURL)
-            let context = controller.container.viewContext
-            let service = try PersonalizationService(contracts: contracts, predictor: predictor)
-
-            if mode.usesShuffledLabels {
-                try disableAutomaticCalibrationTraining(in: context, service: service)
-                outcome.report.summaryNotes.append("Negative control: rotate labels deterministically with yShuffled = (yTrue + 1) % 4.")
-                outcome.report.summaryNotes.append("Expectation: shuffled-label calibration must not improve true-label probability, Brier, or log-loss.")
-            }
-
-            for week in scenario.prefix(15) {
-                let record = makeWeeklyRecord(from: week, in: context)
-                try context.save()
-
-                let currentHistory = try fetchWeeklyRecords(in: context)
-                let predictionResult = try service.evaluateAndPersistPrediction(for: currentHistory, in: context)
-                let closeResult = try service.closeWeek(record, actualOutflow: week.actualOutflow, history: currentHistory, in: context)
-
-                if mode.usesShuffledLabels {
-                    try applyShuffledLabelsAndMaybeTrain(in: context, contracts: contracts)
-                }
-
-                let status = try service.fetchCalibrationStatus(in: context)
-                let snapshot = try service.fetchCalibrationSnapshot(in: context)
-                let latestPrediction = try fetchLatestPredictionSnapshot(in: context)
-
-                outcome.report.rows.append(
-                    ReplayReportRow(
-                        weekIndex: week.weekIndex,
-                        referenceOutflow: week.referenceOutflow,
-                        actualOutflow: week.actualOutflow,
-                        derivedBucket: PersonalizationService.spendBucket(for: week.actualOutflow, thresholds: contracts.thresholds),
-                        labelBuffered: snapshot.samples.contains(where: { $0.weekIndex == week.weekIndex }),
-                        mode: modeLabel(for: predictionResult, sourceMode: latestPrediction?.sourceMode),
-                        updateCount: status.updateCount
-                    )
+            let preRestartState: HarnessState
+            switch mode {
+            case .historicalReplay, .shuffledLabelsNegativeControl:
+                preRestartState = try runHistoricalReplayTraining(
+                    mode: mode,
+                    contracts: contracts,
+                    predictor: predictor,
+                    scenario: scenario,
+                    storeURL: storeURL,
+                    report: &outcome.report
                 )
-
-                if week.weekIndex <= 6 {
-                    try assert(!snapshot.samples.contains(where: { $0.weekIndex == week.weekIndex }), "Weeks before history warm-up must not enter the calibration buffer.", report: &outcome.report)
-                    try assert(closeResult == .updatedOnlyWarmup(completedWeeks: week.weekIndex + 1, requiredWeeks: contracts.featureContract.guardrails.warmupWeeks), "Weeks before warm-up should close without creating calibration labels.", report: &outcome.report)
-                } else if week.weekIndex < 14 {
-                    try assert(closeResult == .updatedAndQueuedForCalibration, "Warm-up labels before the final replay week should queue for calibration.", report: &outcome.report)
-                    try assert(status.isActive == false, "Personalization should remain inactive until the final warm-up label triggers training.", report: &outcome.report)
-                }
+            case .realCoreMLReplay:
+                preRestartState = try runRealCoreMLReplayTraining(
+                    contracts: contracts,
+                    scenario: scenario,
+                    storeURL: storeURL,
+                    report: &outcome.report
+                )
             }
 
-            let preRestartStatus = try service.fetchCalibrationStatus(in: context)
-            let preRestartSnapshot = try service.fetchCalibrationSnapshot(in: context)
+            let preRestartStatus = preRestartState.status
+            let preRestartSnapshot = preRestartState.snapshot
             try assert(preRestartStatus.isActive, "Calibration must become active after the replay warm-up completes.", report: &outcome.report)
             try assert(preRestartStatus.updateCount >= 1, "At least one calibration update must complete during replay.", report: &outcome.report)
             try assert(preRestartSnapshot.samples.count == 8, "Replay should accumulate exactly 8 labeled samples before evaluation.", report: &outcome.report)
@@ -123,7 +106,9 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
 
             let restartedController = PersistenceController(storeURL: storeURL)
             let restartedContext = restartedController.container.viewContext
-            let restartedService = try PersonalizationService(contracts: contracts, predictor: predictor)
+            let restartedService = mode.usesReplayPredictor
+                ? try PersonalizationService(contracts: contracts, predictor: predictor)
+                : try PersonalizationService(contracts: contracts)
             let restartedStatus = try restartedService.fetchCalibrationStatus(in: restartedContext)
             let restartedSnapshot = try restartedService.fetchCalibrationSnapshot(in: restartedContext)
 
@@ -139,24 +124,22 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
             try restartedContext.save()
 
             let evaluationHistory = try fetchWeeklyRecords(in: restartedContext)
-            let baselineService = PredictionService(
-                contract: contracts.featureContract,
-                thresholds: contracts.thresholds,
-                predictor: predictor
+            let evaluation = try evaluateMode(
+                mode: mode,
+                contracts: contracts,
+                predictor: predictor,
+                history: evaluationHistory,
+                restartedContext: restartedContext,
+                restartedService: restartedService,
+                snapshot: restartedSnapshot
             )
-            let baselineResult = try baselineService.runPrediction(for: evaluationHistory)
-            guard case let .ready(baseComputation) = baselineResult else {
-                throw SmokeHarnessError.missingReadyPrediction("Evaluation week should be past RF warm-up.")
-            }
 
-            let finalResult = try restartedService.evaluateAndPersistPrediction(for: evaluationHistory, in: restartedContext)
-            guard case let .ready(finalComputation) = finalResult else {
-                throw SmokeHarnessError.missingReadyPrediction("Evaluation week should return a blended prediction.")
-            }
-
-            let baselineProbabilities = probabilitiesArray(from: baseComputation.probabilities)
-            let finalProbabilities = probabilitiesArray(from: finalComputation.probabilities)
-            let trueClass = 3
+            let baselineProbabilities = evaluation.baselineProbabilities
+            let finalProbabilities = evaluation.finalProbabilities
+            let trueClass = PersonalizationService.spendBucket(
+                for: evaluationWeek.actualOutflow,
+                thresholds: contracts.thresholds
+            )
             let baseBrier = brierScore(probabilities: baselineProbabilities, trueClass: trueClass)
             let finalBrier = brierScore(probabilities: finalProbabilities, trueClass: trueClass)
             let baseLogLoss = logLoss(probabilities: baselineProbabilities, trueClass: trueClass)
@@ -169,12 +152,13 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
                     actualOutflow: evaluationWeek.actualOutflow,
                     derivedBucket: trueClass,
                     labelBuffered: false,
-                    mode: "blended",
+                    mode: evaluation.reportMode,
                     updateCount: restartedStatus.updateCount
                 )
             )
 
             outcome.report.evaluation = EvaluationSummary(
+                trueClass: trueClass,
                 baselineProbabilities: baselineProbabilities,
                 finalProbabilities: finalProbabilities,
                 deltaTrueClassProbability: finalProbabilities[trueClass] - baselineProbabilities[trueClass],
@@ -184,7 +168,7 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
                 finalLogLoss: finalLogLoss
             )
 
-            try assert(abs(baseComputation.diagnostics.sumProbs - 1.0) < 0.000001, "Baseline RF probabilities must stay normalized.", report: &outcome.report)
+            try assert(abs(evaluation.baselineSumProbs - 1.0) < 0.000001, "Baseline RF probabilities must stay normalized.", report: &outcome.report)
             try assert(abs(finalProbabilities.reduce(0.0, +) - 1.0) < 0.000001, "Blended probabilities must stay normalized.", report: &outcome.report)
 
             if mode.usesShuffledLabels {
@@ -193,12 +177,12 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
                 try assert(finalBrier >= baseBrier - tolerance, "Shuffled-label calibration must not improve Brier score on the evaluation week.", report: &outcome.report)
                 try assert(finalLogLoss >= baseLogLoss - tolerance, "Shuffled-label calibration must not improve log-loss on the evaluation week.", report: &outcome.report)
             } else {
-                try assert(finalProbabilities[trueClass] > baselineProbabilities[trueClass], "Calibration should increase probability for the observed high-spend class on the evaluation week.", report: &outcome.report)
+                try assert(finalProbabilities[trueClass] > baselineProbabilities[trueClass], "Calibration should increase probability for the observed derived class on the evaluation week.", report: &outcome.report)
                 try assert(finalBrier < baseBrier, "Calibration should improve Brier score on the evaluation week.", report: &outcome.report)
                 try assert(finalLogLoss < baseLogLoss, "Calibration should improve log-loss on the evaluation week.", report: &outcome.report)
             }
 
-            if shouldRunRealCoreML {
+            if shouldRunRealCoreML && mode == .historicalReplay {
                 outcome.report.coreMLRows = try runRealCoreMLInformationalReplay(contracts: contracts)
             }
 
@@ -383,6 +367,282 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
         try context.save()
     }
 
+    private func runHistoricalReplayTraining(
+        mode: SmokeHarnessMode,
+        contracts: AppContractStore,
+        predictor: ReplayPredictor,
+        scenario: [ReplayWeek],
+        storeURL: URL,
+        report: inout CalibrationSmokeReport
+    ) throws -> HarnessState {
+        let controller = PersistenceController(storeURL: storeURL)
+        let context = controller.container.viewContext
+        let service = try PersonalizationService(contracts: contracts, predictor: predictor)
+
+        if mode.usesShuffledLabels {
+            try disableAutomaticCalibrationTraining(in: context, service: service)
+            report.summaryNotes.append("Negative control: rotate labels deterministically with yShuffled = (yTrue + 1) % 4.")
+            report.summaryNotes.append("Expectation: shuffled-label calibration must not improve true-label probability, Brier, or log-loss.")
+        }
+
+        for week in scenario.prefix(15) {
+            let record = makeWeeklyRecord(from: week, in: context)
+            try context.save()
+
+            let currentHistory = try fetchWeeklyRecords(in: context)
+            let predictionResult = try service.evaluateAndPersistPrediction(for: currentHistory, in: context)
+            let closeResult = try service.closeWeek(record, actualOutflow: week.actualOutflow, history: currentHistory, in: context)
+
+            if mode.usesShuffledLabels {
+                try applyShuffledLabelsAndMaybeTrain(in: context, contracts: contracts)
+            }
+
+            let status = try service.fetchCalibrationStatus(in: context)
+            let snapshot = try service.fetchCalibrationSnapshot(in: context)
+            let latestPrediction = try fetchLatestPredictionSnapshot(in: context)
+
+            report.rows.append(
+                ReplayReportRow(
+                    weekIndex: week.weekIndex,
+                    referenceOutflow: week.referenceOutflow,
+                    actualOutflow: week.actualOutflow,
+                    derivedBucket: PersonalizationService.spendBucket(for: week.actualOutflow, thresholds: contracts.thresholds),
+                    labelBuffered: snapshot.samples.contains(where: { $0.weekIndex == week.weekIndex }),
+                    mode: modeLabel(for: predictionResult, sourceMode: latestPrediction?.sourceMode),
+                    updateCount: status.updateCount
+                )
+            )
+
+            if week.weekIndex <= 6 {
+                try assert(!snapshot.samples.contains(where: { $0.weekIndex == week.weekIndex }), "Weeks before history warm-up must not enter the calibration buffer.", report: &report)
+                try assert(closeResult == .updatedOnlyWarmup(completedWeeks: week.weekIndex + 1, requiredWeeks: contracts.featureContract.guardrails.warmupWeeks), "Weeks before warm-up should close without creating calibration labels.", report: &report)
+            } else if week.weekIndex < 14 {
+                try assert(closeResult == .updatedAndQueuedForCalibration, "Warm-up labels before the final replay week should queue for calibration.", report: &report)
+                try assert(status.isActive == false, "Personalization should remain inactive until the final warm-up label triggers training.", report: &report)
+            }
+        }
+
+        return HarnessState(
+            status: try service.fetchCalibrationStatus(in: context),
+            snapshot: try service.fetchCalibrationSnapshot(in: context)
+        )
+    }
+
+    private func runRealCoreMLReplayTraining(
+        contracts: AppContractStore,
+        scenario: [ReplayWeek],
+        storeURL: URL,
+        report: inout CalibrationSmokeReport
+    ) throws -> HarnessState {
+        let controller = PersistenceController(storeURL: storeURL)
+        let context = controller.container.viewContext
+        let bootstrapService = try PersonalizationService(contracts: contracts)
+        _ = try bootstrapService.fetchCalibrationStatus(in: context)
+        let predictionService = try PredictionService(contracts: contracts)
+        report.summaryNotes.append("Real CoreML replay: run PredictionService(contracts:) on each replay week and train the calibrator from persisted pRF samples.")
+
+        for week in scenario.prefix(15) {
+            let record = makeWeeklyRecord(from: week, in: context)
+            try context.save()
+
+            let currentHistory = try fetchWeeklyRecords(in: context)
+            let predictionResult = try predictionService.upsertPredictionSnapshot(for: currentHistory, in: context)
+            let closeResult = try captureRealCoreMLWeek(
+                record,
+                actualOutflow: week.actualOutflow,
+                history: currentHistory,
+                context: context,
+                contracts: contracts,
+                predictionService: predictionService
+            )
+
+            let status = try bootstrapService.fetchCalibrationStatus(in: context)
+            let snapshot = try bootstrapService.fetchCalibrationSnapshot(in: context)
+            let latestPrediction = try fetchLatestPredictionSnapshot(in: context)
+
+            report.rows.append(
+                ReplayReportRow(
+                    weekIndex: week.weekIndex,
+                    referenceOutflow: week.referenceOutflow,
+                    actualOutflow: week.actualOutflow,
+                    derivedBucket: PersonalizationService.spendBucket(for: week.actualOutflow, thresholds: contracts.thresholds),
+                    labelBuffered: snapshot.samples.contains(where: { $0.weekIndex == week.weekIndex }),
+                    mode: modeLabel(for: predictionResult, sourceMode: latestPrediction?.sourceMode),
+                    updateCount: status.updateCount
+                )
+            )
+
+            if week.weekIndex <= 6 {
+                try assert(!snapshot.samples.contains(where: { $0.weekIndex == week.weekIndex }), "Weeks before history warm-up must not enter the calibration buffer.", report: &report)
+                try assert(closeResult == .updatedOnlyWarmup(completedWeeks: week.weekIndex + 1, requiredWeeks: contracts.featureContract.guardrails.warmupWeeks), "Weeks before warm-up should close without creating calibration labels.", report: &report)
+            } else if week.weekIndex < 14 {
+                try assert(closeResult == .updatedAndQueuedForCalibration, "Warm-up labels before the final replay week should queue for calibration.", report: &report)
+                try assert(status.isActive == false, "Personalization should remain inactive until the final warm-up label triggers training.", report: &report)
+            }
+        }
+
+        return HarnessState(
+            status: try bootstrapService.fetchCalibrationStatus(in: context),
+            snapshot: try bootstrapService.fetchCalibrationSnapshot(in: context)
+        )
+    }
+
+    private func captureRealCoreMLWeek(
+        _ week: WeeklyRecord,
+        actualOutflow: Double,
+        history: [WeeklyRecord],
+        context: NSManagedObjectContext,
+        contracts: AppContractStore,
+        predictionService: PredictionService
+    ) throws -> WeeklyOutcomeCaptureResult {
+        let normalizedOutflow = max(0.0, actualOutflow)
+        week.actualSpendAmount = NSNumber(value: normalizedOutflow)
+        week.actualSpendBucket = NSNumber(value: PersonalizationService.spendBucket(for: normalizedOutflow, thresholds: contracts.thresholds))
+        week.hasActualOutcome = true
+        week.updatedAt = Date()
+        try saveIfNeeded(context)
+
+        let orderedHistory = history
+            .compactMap { record -> (WeeklyRecord, Date)? in
+                guard let weekStart = record.weekStart else { return nil }
+                return (record, weekStart)
+            }
+            .sorted(by: { $0.1 < $1.1 })
+            .map(\.0)
+        let historyUpToWeek = orderedHistory.filter { ($0.weekStart ?? .distantPast) <= (week.weekStart ?? .distantFuture) }
+        let warmupWeeks = contracts.featureContract.guardrails.warmupWeeks
+        if historyUpToWeek.count < warmupWeeks {
+            return .updatedOnlyWarmup(completedWeeks: historyUpToWeek.count, requiredWeeks: warmupWeeks)
+        }
+
+        let predictionResult = try predictionService.runPrediction(for: historyUpToWeek)
+        guard case let .ready(computation) = predictionResult else {
+            return .updatedOnlyWarmup(completedWeeks: historyUpToWeek.count, requiredWeeks: warmupWeeks)
+        }
+
+        let sample = CalibrationSample(
+            weekIndex: week.weekIndex?.intValue ?? 0,
+            weekStart: week.weekStart,
+            pRF: probabilitiesArray(from: computation.probabilities),
+            yTrue: PersonalizationService.spendBucket(for: normalizedOutflow, thresholds: contracts.thresholds),
+            actualOutflow: normalizedOutflow,
+            recordedAt: week.updatedAt ?? Date()
+        )
+
+        return try persistCalibrationSample(sample, in: context, contracts: contracts)
+    }
+
+    private func persistCalibrationSample(
+        _ sample: CalibrationSample,
+        in context: NSManagedObjectContext,
+        contracts: AppContractStore
+    ) throws -> WeeklyOutcomeCaptureResult {
+        let state = try XCTUnwrap(fetchCalibrationState(in: context))
+        var snapshot = CalibrationStateSnapshot(
+            config: calibrationConfig(from: state, contracts: contracts, updateEveryWeeksOverride: SmokeHarnessMode.realCoreMLReplay.reportCadence),
+            weights: decodeMatrix(from: state.weightsData) ?? SoftmaxCalibrator.identity().weights,
+            bias: decodeVector(from: state.biasData) ?? SoftmaxCalibrator.identity().bias,
+            samples: decodeSamples(from: state.bufferData)
+        )
+
+        snapshot.samples.removeAll(where: { $0.weekIndex == sample.weekIndex })
+        snapshot.samples.append(sample)
+        snapshot.samples.sort { $0.weekIndex < $1.weekIndex }
+        if snapshot.samples.count > snapshot.config.historyCap {
+            snapshot.samples = Array(snapshot.samples.suffix(snapshot.config.historyCap))
+        }
+
+        let updatedWeeksSinceLast = (state.weeksSinceLastUpdate?.intValue ?? 0) + 1
+        state.weeksSinceLastUpdate = NSNumber(value: updatedWeeksSinceLast)
+
+        let shouldTrain = snapshot.samples.count >= snapshot.config.warmupWeeks &&
+            updatedWeeksSinceLast >= snapshot.config.updateEveryWeeks
+
+        if shouldTrain {
+            var calibrator = SoftmaxCalibrator(weights: snapshot.weights, bias: snapshot.bias)
+            calibrator.train(samples: snapshot.samples, config: snapshot.config)
+            snapshot = CalibrationStateSnapshot(
+                config: snapshot.config,
+                weights: calibrator.weights,
+                bias: calibrator.bias,
+                samples: snapshot.samples
+            )
+            state.weightsData = encodeMatrix(snapshot.weights)
+            state.biasData = encodeVector(snapshot.bias)
+            state.bufferData = encodeSamples(snapshot.samples)
+            state.weeksSinceLastUpdate = 0
+            state.updateCount = NSNumber(value: (state.updateCount?.intValue ?? 0) + 1)
+            state.isActive = true
+            state.notes = "Real CoreML replay trained on \(snapshot.samples.count) labeled samples."
+            state.updatedAt = Date()
+            try saveIfNeeded(context)
+            return .updatedAndTrained
+        }
+
+        state.weightsData = encodeMatrix(snapshot.weights)
+        state.biasData = encodeVector(snapshot.bias)
+        state.bufferData = encodeSamples(snapshot.samples)
+        state.isActive = (state.updateCount?.intValue ?? 0) > 0
+        state.notes = "Real CoreML replay queued \(snapshot.samples.count) labeled samples."
+        state.updatedAt = Date()
+        try saveIfNeeded(context)
+        return .updatedAndQueuedForCalibration
+    }
+
+    private func evaluateMode(
+        mode: SmokeHarnessMode,
+        contracts: AppContractStore,
+        predictor: ReplayPredictor,
+        history: [WeeklyRecord],
+        restartedContext: NSManagedObjectContext,
+        restartedService: PersonalizationService,
+        snapshot: CalibrationStateSnapshot
+    ) throws -> EvaluationOutcome {
+        switch mode {
+        case .historicalReplay, .shuffledLabelsNegativeControl:
+            let baselineService = PredictionService(
+                contract: contracts.featureContract,
+                thresholds: contracts.thresholds,
+                predictor: predictor
+            )
+            let baselineResult = try baselineService.runPrediction(for: history)
+            guard case let .ready(baseComputation) = baselineResult else {
+                throw SmokeHarnessError.missingReadyPrediction("Evaluation week should be past RF warm-up.")
+            }
+
+            let finalResult = try restartedService.evaluateAndPersistPrediction(for: history, in: restartedContext)
+            guard case let .ready(finalComputation) = finalResult else {
+                throw SmokeHarnessError.missingReadyPrediction("Evaluation week should return a blended prediction.")
+            }
+
+            return EvaluationOutcome(
+                baselineProbabilities: probabilitiesArray(from: baseComputation.probabilities),
+                finalProbabilities: probabilitiesArray(from: finalComputation.probabilities),
+                baselineSumProbs: baseComputation.diagnostics.sumProbs,
+                reportMode: "blended"
+            )
+        case .realCoreMLReplay:
+            let baselineService = try PredictionService(contracts: contracts)
+            let baselineResult = try baselineService.runPrediction(for: history)
+            guard case let .ready(baseComputation) = baselineResult else {
+                throw SmokeHarnessError.missingReadyPrediction("Evaluation week should be past RF warm-up.")
+            }
+
+            let baselineProbabilities = probabilitiesArray(from: baseComputation.probabilities)
+            let calibrator = SoftmaxCalibrator(weights: snapshot.weights, bias: snapshot.bias)
+            let calibrated = calibrator.predict(baselineProbabilities)
+            let alpha = snapshot.config.alpha
+            let finalProbabilities = zip(baselineProbabilities, calibrated).map { (1.0 - alpha) * $0 + alpha * $1 }
+
+            return EvaluationOutcome(
+                baselineProbabilities: baselineProbabilities,
+                finalProbabilities: finalProbabilities,
+                baselineSumProbs: baseComputation.diagnostics.sumProbs,
+                reportMode: "blended"
+            )
+        }
+    }
+
     private func fetchCalibrationState(in context: NSManagedObjectContext) throws -> CalibrationStateRecord? {
         let request: NSFetchRequest<CalibrationStateRecord> = CalibrationStateRecord.fetchRequest()
         request.fetchLimit = 1
@@ -433,6 +693,12 @@ final class CalibrationSmokeHarnessTests: XCTestCase {
     private func decodeVector(from data: Data?) -> [Double]? {
         guard let data, !data.isEmpty else { return nil }
         return try? JSONDecoder().decode([Double].self, from: data)
+    }
+
+    private func saveIfNeeded(_ context: NSManagedObjectContext) throws {
+        if context.hasChanges {
+            try context.save()
+        }
     }
 
     private func runRealCoreMLInformationalReplay(contracts: AppContractStore) throws -> [CoreMLInfoRow] {
@@ -588,6 +854,7 @@ private struct ReplayReportRow {
 }
 
 private struct EvaluationSummary {
+    let trueClass: Int
     let baselineProbabilities: [Double]
     let finalProbabilities: [Double]
     let deltaTrueClassProbability: Double
@@ -613,6 +880,18 @@ private struct InformationalReferenceCase {
 private struct HarnessOutcome {
     var status = "FAIL"
     var report: CalibrationSmokeReport
+}
+
+private struct HarnessState {
+    let status: CalibrationStatus
+    let snapshot: CalibrationStateSnapshot
+}
+
+private struct EvaluationOutcome {
+    let baselineProbabilities: [Double]
+    let finalProbabilities: [Double]
+    let baselineSumProbs: Double
+    let reportMode: String
 }
 
 private struct CalibrationSmokeReport {
@@ -655,6 +934,7 @@ private struct CalibrationSmokeReport {
         lines.append("")
         lines.append("Evaluation summary")
         if let evaluation {
+            lines.append("derived true class: \(evaluation.trueClass)")
             lines.append("pRF: \(formatProbabilities(evaluation.baselineProbabilities))")
             lines.append("pFinal: \(formatProbabilities(evaluation.finalProbabilities))")
             lines.append("delta true-class prob: \(format(evaluation.deltaTrueClassProbability))")
@@ -681,9 +961,10 @@ private struct CalibrationSmokeReport {
     }
 }
 
-private enum SmokeHarnessMode {
+private enum SmokeHarnessMode: Equatable {
     case historicalReplay
     case shuffledLabelsNegativeControl
+    case realCoreMLReplay
 
     var reportTitle: String {
         switch self {
@@ -691,6 +972,8 @@ private enum SmokeHarnessMode {
             return "Stage 3 Calibration Smoke Harness"
         case .shuffledLabelsNegativeControl:
             return "Stage 3 Calibration Smoke Harness (Shuffled Labels Negative Control)"
+        case .realCoreMLReplay:
+            return "Stage 3 Calibration Smoke Harness (Real CoreML Replay)"
         }
     }
 
@@ -702,6 +985,17 @@ private enum SmokeHarnessMode {
             return false
         case .shuffledLabelsNegativeControl:
             return true
+        case .realCoreMLReplay:
+            return false
+        }
+    }
+
+    var usesReplayPredictor: Bool {
+        switch self {
+        case .historicalReplay, .shuffledLabelsNegativeControl:
+            return true
+        case .realCoreMLReplay:
+            return false
         }
     }
 }
