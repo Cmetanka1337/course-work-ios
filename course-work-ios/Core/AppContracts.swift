@@ -116,6 +116,13 @@ struct ReleaseManifest: Codable, Equatable {
 }
 
 struct AppContractStore {
+    private static let resourceSearchSubdirectories: [String?] = [
+        "Resources/Contracts",
+        "Contracts",
+        "Resources",
+        nil
+    ]
+
     let featureContract: FeatureContract
     let thresholds: BucketThresholds
     let releaseManifest: ReleaseManifest
@@ -174,7 +181,11 @@ struct AppContractStore {
         let packagedModelURL = bundle.url(forResource: "BerkaSpendBucketRF", withExtension: "mlpackage")
         modelResourceExists = compiledModelURL != nil || packagedModelURL != nil
         featurePassportExists = passport != nil
-        releaseManifestExists = bundle.url(forResource: "release_manifest", withExtension: "json") != nil
+        releaseManifestExists = Self.resourceURL(
+            name: "release_manifest",
+            extension: "json",
+            bundle: bundle
+        ) != nil
         goldenInferenceSetExists = goldenData != nil
 
         if !modelResourceExists {
@@ -233,7 +244,7 @@ struct AppContractStore {
         bundle: Bundle,
         issues: inout [String]
     ) -> Data? {
-        guard let url = bundle.url(forResource: name, withExtension: ext) else {
+        guard let url = resourceURL(name: name, extension: ext, bundle: bundle) else {
             issues.append("Missing resource \(name).\(ext)")
             return nil
         }
@@ -243,6 +254,19 @@ struct AppContractStore {
             issues.append("Failed to load \(name).\(ext): \(error.localizedDescription)")
             return nil
         }
+    }
+
+    private static func resourceURL(
+        name: String,
+        extension ext: String,
+        bundle: Bundle
+    ) -> URL? {
+        for subdirectory in resourceSearchSubdirectories {
+            if let url = bundle.url(forResource: name, withExtension: ext, subdirectory: subdirectory) {
+                return url
+            }
+        }
+        return nil
     }
 
     nonisolated private static func goldenRecordCount(from data: Data) -> Int? {
